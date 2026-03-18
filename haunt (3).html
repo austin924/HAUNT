@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>HAUNT — Ashford Manor</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#000; overflow:hidden; font-family:'Courier New',monospace; }
+canvas { display:block; width:100vw; height:100vh; }
+#ui { position:fixed;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:10; }
+
+/* Crosshair */
+#xhair { position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:16px;height:16px; }
+#xhair::before,#xhair::after { content:'';position:absolute;background:rgba(180,220,255,0.5); }
+#xhair::before { width:1px;height:7px;top:4px;left:7px; }
+#xhair::after  { width:7px;height:1px;top:7px;left:4px; }
+
+/* Equipment HUD - bottom left */
+#equip-panel {
+  position:absolute;bottom:20px;left:20px;
+  background:rgba(0,0,0,0.75);border:1px solid rgba(100,180,255,0.15);
+  padding:10px 14px;width:220px;
+}
+#equip-title { font-size:8px;color:rgba(100,180,255,0.35);letter-spacing:3px;margin-bottom:8px; }
+.equip-row { display:flex;justify-content:space-between;align-items:center;margin-bottom:6px; }
+.equip-name { font-size:9px;color:rgba(180,220,255,0.5);letter-spacing:2px; }
+.equip-val  { font-size:11px;letter-spacing:1px; }
+.equip-val.normal { color:rgba(100,200,100,0.7); }
+.equip-val.warn   { color:rgba(220,180,50,0.9); }
+.equip-val.danger { color:rgba(255,60,60,0.9);animation:blink 0.5s infinite; }
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.2}}
+
+/* Evidence panel - bottom right */
+#evidence-panel {
+  position:absolute;bottom:20px;right:20px;
+  background:rgba(0,0,0,0.75);border:1px solid rgba(100,180,255,0.15);
+  padding:10px 14px;text-align:right;
+}
+#evidence-title { font-size:8px;color:rgba(100,180,255,0.35);letter-spacing:3px;margin-bottom:8px; }
+.ev-item { font-size:9px;color:rgba(180,220,255,0.25);letter-spacing:2px;margin-bottom:4px; }
+.ev-item.found { color:rgba(100,220,150,0.8); }
+
+/* Haunt meter - top center */
+#haunt-wrap { position:absolute;top:0;left:50%;transform:translateX(-50%);padding:12px 20px;text-align:center; }
+#haunt-label { font-size:8px;color:rgba(255,80,80,0.3);letter-spacing:3px;margin-bottom:4px; }
+#haunt-bar { width:200px;height:4px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,80,80,0.15); }
+#haunt-fill { height:100%;background:linear-gradient(90deg,#330000,#ff2200);transition:width 0.5s; }
+#haunt-pct { font-size:9px;color:rgba(255,80,80,0.5);letter-spacing:2px;margin-top:3px; }
+
+/* Active tool */
+#active-tool {
+  position:absolute;bottom:20px;left:50%;transform:translateX(-50%);
+  font-size:10px;color:rgba(100,180,255,0.5);letter-spacing:3px;
+  background:rgba(0,0,0,0.6);padding:5px 14px;
+  border:1px solid rgba(100,180,255,0.15);
+}
+
+/* Message */
+#msg { position:absolute;top:38%;left:50%;transform:translateX(-50%);font-size:12px;color:rgba(180,220,255,0.9);letter-spacing:3px;text-align:center;opacity:0;transition:opacity 0.4s;line-height:1.9;white-space:pre-line;background:rgba(0,0,0,0.5);padding:8px 18px; }
+#prompt { position:absolute;top:57%;left:50%;transform:translateX(-50%);font-size:10px;color:rgba(180,220,255,0.7);letter-spacing:3px;opacity:0;transition:opacity 0.2s;background:rgba(0,0,0,0.4);padding:4px 12px; }
+
+/* Ghost name flicker */
+#ghost-name { position:absolute;top:20px;left:20px;font-size:11px;color:rgba(180,220,255,0);letter-spacing:4px;transition:color 0.5s; }
+
+/* Controls */
+#controls { position:absolute;bottom:20px;right:20px;font-size:8px;color:rgba(255,255,255,0.1);line-height:2;letter-spacing:1px;text-align:right; }
+
+/* Flashes */
+#dmg   { position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(180,0,0,0);pointer-events:none;z-index:9; }
+#white { position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(255,255,255,0);pointer-events:none;z-index:8; }
+#vig   { position:fixed;top:0;left:0;right:0;bottom:0;background:radial-gradient(ellipse at center,transparent 45%,rgba(0,0,0,0.75) 100%);pointer-events:none;z-index:5; }
+#uvoverlay { position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(60,0,120,0);pointer-events:none;z-index:6;transition:background 0.3s; }
+#emfoverlay{ position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,60,0,0);pointer-events:none;z-index:7;transition:background 0.2s; }
+
+/* Lock hint */
+#lockhint { position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:10px;color:rgba(180,220,255,0.6);letter-spacing:2px;background:rgba(0,0,0,0.9);padding:10px 22px;border:1px solid rgba(100,180,255,0.2);display:none;text-align:center; }
+
+/* Overlay */
+#overlay { position:fixed;top:0;left:0;right:0;bottom:0;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:100;pointer-events:all;gap:13px; }
+#ov-agency { font-size:9px;color:rgba(100,180,255,0.25);letter-spacing:5px; }
+#ov-title  { font-size:44px;color:rgba(180,220,255,0.85);letter-spacing:8px;font-weight:400;text-shadow:0 0 30px rgba(100,180,255,0.2);text-align:center;line-height:1.3; }
+#ov-rule   { width:120px;height:1px;background:rgba(100,180,255,0.12); }
+#ov-desc   { font-size:10px;color:rgba(150,190,230,0.4);letter-spacing:2px;line-height:2.4;text-align:center;max-width:420px; }
+#ov-warn   { font-size:9px;color:rgba(255,80,80,0.4);letter-spacing:2px; }
+#start-btn { padding:10px 34px;background:transparent;border:1px solid rgba(100,180,255,0.2);color:rgba(150,200,255,0.55);font-family:'Courier New',monospace;font-size:10px;letter-spacing:4px;cursor:pointer;transition:all 0.2s;margin-top:6px; }
+#start-btn:hover { background:rgba(100,180,255,0.06);border-color:rgba(150,200,255,0.5);color:rgba(180,220,255,0.9); }
+
+/* End screens */
+#deadscreen { display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:#000;flex-direction:column;align-items:center;justify-content:center;z-index:100;pointer-events:all;gap:12px; }
+#dead-h { font-size:36px;color:rgba(255,60,60,0.7);letter-spacing:6px;font-weight:400; }
+#dead-msg { font-size:10px;color:rgba(180,100,100,0.35);letter-spacing:2px;text-align:center;line-height:2.5;max-width:400px; }
+
+#winscreen { display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:#000;flex-direction:column;align-items:center;justify-content:center;z-index:100;pointer-events:all;gap:12px; }
+#win-h { font-size:32px;color:rgba(100,220,150,0.7);letter-spacing:6px;font-weight:400;text-align:center;line-height:1.4; }
+#win-msg { font-size:10px;color:rgba(100,180,120,0.35);letter-spacing:2px;text-align:center;line-height:2.5; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="vig"></div>
+<div id="uvoverlay"></div>
+<div id="emfoverlay"></div>
+<div id="dmg"></div>
+<div id="white"></div>
+
+<div id="ui">
+  <div id="xhair"></div>
+  <div id="ghost-name">PRESENCE DETECTED</div>
+  <div id="haunt-wrap">
+    <div id="haunt-label">HAUNT LEVEL</div>
+    <div id="haunt-bar"><div id="haunt-fill" style="width:0%"></div></div>
+    <div id="haunt-pct">0%</div>
+  </div>
+  <div id="equip-panel">
+    <div id="equip-title">// EQUIPMENT //</div>
+    <div class="equip-row"><span class="equip-name">EMF</span><span class="equip-val normal" id="emf-val">1.2 mG</span></div>
+    <div class="equip-row"><span class="equip-name">TEMP</span><span class="equip-val normal" id="temp-val">18.4°C</span></div>
+    <div class="equip-row"><span class="equip-name">UV</span><span class="equip-val normal" id="uv-val">INACTIVE</span></div>
+    <div class="equip-row"><span class="equip-name">SPIRIT BOX</span><span class="equip-val normal" id="sb-val">SILENT</span></div>
+  </div>
+  <div id="evidence-panel">
+    <div id="evidence-title">// EVIDENCE //</div>
+    <div class="ev-item" id="ev0">◻ EMF SPIKE</div>
+    <div class="ev-item" id="ev1">◻ COLD SPOT</div>
+    <div class="ev-item" id="ev2">◻ UV MARKS</div>
+    <div class="ev-item" id="ev3">◻ SPIRIT RESPONSE</div>
+  </div>
+  <div id="active-tool">TOOL: FLASHLIGHT [1-4 SWITCH]</div>
+  <div id="msg"></div>
+  <div id="prompt"></div>
+  <div id="controls">WASD · MOVE<br>MOUSE · LOOK<br>SPACE · JUMP<br>E · INVESTIGATE<br>1-4 · SWITCH TOOL<br>F · FLASHLIGHT</div>
+  <div id="lockhint">CLICK TO LOCK MOUSE</div>
+</div>
+
+<div id="overlay">
+  <div id="ov-agency">// ASHFORD PARANORMAL RESEARCH UNIT //</div>
+  <div id="ov-title">HAUNT<br>ASHFORD MANOR</div>
+  <div id="ov-rule"></div>
+  <div id="ov-desc">
+    Ashford Manor. Abandoned 1962.<br>
+    3 confirmed deaths. 7 unexplained disappearances.<br>
+    Collect 4 pieces of evidence.<br>
+    Get out before the manor reaches full haunt.<br>
+  </div>
+  <div id="ov-warn">The more you investigate, the more they notice you.</div>
+  <button id="start-btn" onclick="startGame()">ENTER THE MANOR</button>
+</div>
+
+<div id="deadscreen">
+  <div id="dead-h">INVESTIGATOR LOST</div>
+  <div id="dead-msg" id="dead-msg"></div>
+  <button style="font-family:'Courier New',monospace;padding:9px 26px;background:transparent;border:1px solid rgba(255,50,50,0.2);color:rgba(255,80,60,0.4);font-size:9px;letter-spacing:4px;cursor:pointer;margin-top:10px;" onclick="location.reload()">NEW INVESTIGATION</button>
+</div>
+<div id="winscreen">
+  <div id="win-h">EVIDENCE<br>RECOVERED</div>
+  <div id="win-msg" id="win-msg"></div>
+  <button style="font-family:'Courier New',monospace;padding:9px 26px;background:transparent;border:1px solid rgba(100,180,255,0.2);color:rgba(150,200,255,0.4);font-size:9px;letter-spacing:4px;cursor:pointer;margin-top:10px;" onclick="location.reload()">INVESTIGATE AGAIN</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ── GLOBALS ──────────────────────────────────────────────────────────
+let scene, camera, renderer, clock;
+let gameActive = false, isPointerLocked = false;
+let keys = {}, yaw = 0, pitch = 0;
+let velocityY = 0, onGround = true, sprintStam = 100;
+let msgTimer = 0, dmgTimer = 0, whiteTimer = 0;
+let gameTime = 0;
+
+// Game state
+let hauntLevel = 0; // 0-100
+let evidenceFound = 0;
+const EVIDENCE_NEEDED = 4;
+let evidenceTypes = ['emf','cold','uv','spirit'];
+let evidenceCollected = [false,false,false,false];
+let activeTool = 0; // 0=flashlight, 1=EMF, 2=thermo, 3=UV, 4=spiritbox
+let flashlightOn = true;
+let missionTime = 0;
+let playerHp = 100;
+
+// Ghosts
+let ghosts = [];
+let ghostNames = ['ELEANOR','THE CHILD','THOMAS','THE WATCHER'];
+let activeGhostName = '';
+let ghostEvents = []; // timed scares
+let huntMode = false; // ghosts actively chase at max haunt
+let huntTimer = 0;
+
+// Evidence spots
+let evidenceSpots = [];
+let investigatables = [];
+let worldMeshes = [], worldLights = [], flickerLights = [];
+
+// Tool readings
+let emfReading = 1.2, tempReading = 18.4;
+let emfSpike = false, coldSpot = false;
+let uvActive = false, spiritboxActive = false;
+let spiritTimer = 0;
+
+// Flashlight
+let flashlight = null;
+
+// ── INIT ─────────────────────────────────────────────────────────────
+function init() {
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x020305);
+  scene.fog = new THREE.FogExp2(0x020305, 0.015);
+
+  camera = new THREE.PerspectiveCamera(76, innerWidth/innerHeight, 0.05, 60);
+  camera.position.set(0, 1.65, 0);
+
+  renderer = new THREE.WebGLRenderer({ canvas:document.getElementById('c'), antialias:true });
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 2.2;
+  clock = new THREE.Clock();
+
+  buildManor();
+  spawnGhosts();
+  placeEvidence();
+
+  // Flashlight attached to camera
+  flashlight = new THREE.SpotLight(0xfff8e8, 8.0, 30, Math.PI/8, 0.2, 1.0);
+  flashlight.position.set(0,0,0);
+  flashlight.target.position.set(0,0,-1);
+  scene.add(flashlight); scene.add(flashlight.target);
+
+  window.addEventListener('resize',()=>{
+    camera.aspect=innerWidth/innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth,innerHeight);
+  });
+  document.addEventListener('keydown',e=>{
+    keys[e.code]=true;
+    if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
+    if(!gameActive)return;
+    if(e.code==='KeyE')tryInvestigate();
+    if(e.code==='KeyF'){flashlightOn=!flashlightOn;flashlight.intensity=flashlightOn?4:0;}
+    if(e.code==='Digit1')setTool(0);
+    if(e.code==='Digit2')setTool(1);
+    if(e.code==='Digit3')setTool(2);
+    if(e.code==='Digit4')setTool(3);
+  });
+  document.addEventListener('keyup',e=>keys[e.code]=false);
+  document.addEventListener('mousemove',e=>{
+    if(!isPointerLocked||!gameActive)return;
+    yaw  -=e.movementX*0.002;
+    pitch-=e.movementY*0.002;
+    pitch=Math.max(-0.8,Math.min(0.7,pitch));
+  });
+  document.getElementById('c').addEventListener('click',()=>{
+    if(gameActive&&!isPointerLocked)document.getElementById('c').requestPointerLock();
+  });
+  document.addEventListener('pointerlockchange',()=>{
+    isPointerLocked=!!document.pointerLockElement;
+    document.getElementById('lockhint').style.display=isPointerLocked?'none':(gameActive?'block':'none');
+  });
+  document.addEventListener('pointerlockerror',()=>{
+    document.getElementById('lockhint').textContent='⚠ Open file in browser for mouse lock';
+    document.getElementById('lockhint').style.display='block';
+  });
+}
+
+// ── MANOR ─────────────────────────────────────────────────────────────
+function mat(col,emissive){
+  const m=new THREE.MeshLambertMaterial({color:col});
+  if(emissive){m.emissive=new THREE.Color(emissive);m.emissiveIntensity=0.3;}
+  return m;
+}
+function bm(col){return new THREE.MeshBasicMaterial({color:col});}
+
+function box(w,h,d,material,x,y,z,ry){
+  const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),material);
+  m.position.set(x,y,z); if(ry)m.rotation.y=ry;
+  m.castShadow=true; m.receiveShadow=true;
+  scene.add(m); worldMeshes.push(m); return m;
+}
+function cyl(rt,rb,h,material,x,y,z){
+  const m=new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,h,10),material);
+  m.position.set(x,y,z); m.castShadow=true;
+  scene.add(m); worldMeshes.push(m); return m;
+}
+function pl(x,y,z,col,i,d,flicker){
+  const l=new THREE.PointLight(col,i,d);
+  l.position.set(x,y,z); l.castShadow=false;
+  scene.add(l); worldLights.push(l);
+  if(flicker)flickerLights.push({light:l,base:i,t:Math.random()*10,dead:Math.random()>0.7});
+  return l;
+}
+function amb(col,i){const l=new THREE.AmbientLight(col,i);scene.add(l);worldLights.push(l);return l;}
+
+function makeRoom(cx,cy,cz,w,h,d,floorCol,wallCol,ceilCol){
+  box(w,0.12,d,mat(floorCol),cx,cy-0.06,cz);
+  box(w,0.1,d,mat(ceilCol),cx,cy+h+0.05,cz);
+  box(w,h,0.12,mat(wallCol),cx,cy+h/2,cz-d/2);
+  box(w,h,0.12,mat(wallCol),cx,cy+h/2,cz+d/2);
+  box(0.12,h,d,mat(wallCol),cx-w/2,cy+h/2,cz);
+  box(0.12,h,d,mat(wallCol),cx+w/2,cy+h/2,cz);
+  // Baseboard
+  box(w,0.1,0.05,mat(0x1a1814),cx,cy+0.05,cz-d/2+0.08);
+  box(w,0.1,0.05,mat(0x1a1814),cx,cy+0.05,cz+d/2-0.08);
+}
+
+function buildManor(){
+  amb(0x2a2c3a,3.5);
+
+  // ── ENTRANCE HALL ──
+  makeRoom(0,0,0, 8,3.2,10, 0x1a1814,0x2a2820,0x1e1c18);
+  pl(0,3.0,0,0xffe8c0,3.0,18,true);
+  pl(0,2.7,0,0xffe0a0,1.8,14,true);
+  for(let i=0;i<8;i++){
+    box(3,0.15,0.7,mat(0x2a2418),3.5,i*0.38+0.07,-4+i*0.55);
+  }
+  box(0.12,3.2,6,mat(0x2a2418),-4,1.6,0); // left wall extended
+  // Chandelier
+  cyl(0.05,0.05,0.6,mat(0x4a4030),0,3.1,0);
+  box(0.8,0.08,0.8,mat(0x5a5038),0,2.82,0);
+  pl(0,2.7,0,0xffe0a0,1.5,14,true);
+  // Portrait on wall
+  box(0.04,0.8,0.6,mat(0x3a2c18),-3.94,2.0,-2);
+  box(0.03,0.7,0.5,bm(0x1a1410),-3.95,2.0,-2);
+  // Door to outside (exit)
+  box(1.2,2.3,0.12,mat(0x3a2c18),0,1.15,4.94);
+  box(1.1,2.15,0.08,mat(0x4a3820),0,1.15,4.95);
+  box(0.06,0.06,0.06,mat(0xb89040),0.35,1.1,4.98);
+  investigatables.push({pos:new THREE.Vector3(0,1.15,4.94),type:'exit',label:'[E] EXIT MANOR'});
+
+  // ── DINING ROOM (east) ──
+  makeRoom(10,0,2, 9,3.0,8, 0x1c1a14,0x282418,0x1c1a16);
+  pl(10,2.8,2,0xffcc80,2.5,16,true);
+  // Long table
+  box(5,0.08,1.6,mat(0x3a2c18),10,0.85,2);
+  box(5,0.75,0.1,mat(0x2a2010),10,0.42,2); // table base strip
+  // Chairs
+  for(let i=-2;i<=2;i++){
+    box(0.55,0.8,0.5,mat(0x2a2010),10+i*1.1,0.4,0.9);
+    box(0.55,0.8,0.5,mat(0x2a2010),10+i*1.1,0.4,3.1);
+    box(0.55,0.5,0.08,mat(0x2a2010),10+i*1.1,0.7,0.7);
+  }
+  // Fireplace
+  box(2.5,2.8,0.2,mat(0x303028),10,1.4,6.04);
+  box(2.0,2.3,0.15,mat(0x1a1814),10,1.4,6.06);
+  box(2.0,0.5,0.4,mat(0x282420),10,0.25,5.9);
+  pl(10,0.6,5.7,0xff6600,3.0,10,true);
+
+  // Doorway entrance→dining
+  box(0.12,3.0,2.0,mat(0x2a2418),4.06,1.5,2,0,0);// door frame but open
+
+  // ── LIBRARY (west) ──
+  makeRoom(-10,0,-2, 9,3.2,10, 0x181614,0x242018,0x1c1a16);
+  pl(-10,3.0,-2,0xffe8c0,2.0,16,true);
+  // Bookshelves
+  [[-14,-2],[-14,2],[-14,0]].forEach(([x,z])=>{
+    box(0.3,2.8,2.2,mat(0x2a2018),x,1.4,z);
+    for(let s=0;s<3;s++)box(0.24,0.05,2.0,mat(0x3a2c18),x,0.5+s*0.85,z);
+    // Book spines
+    for(let b=0;b<6;b++)box(0.04,0.5+Math.random()*0.3,0.18,mat([0x3a2010,0x1a2830,0x2a1810,0x182428][b%4]),x+(Math.random()-0.5)*0.18,0.4+Math.floor(b/3)*0.85,(z-0.8)+b*0.28);
+  });
+  // Reading chair
+  box(0.7,0.8,0.7,mat(0x2a1c10),-8,0.4,2);
+  box(0.7,0.7,0.1,mat(0x2a1c10),-8,0.75,1.65);
+  // Desk with candle
+  box(1.4,0.75,0.7,mat(0x302418),-8,0.37,-4);
+  box(1.35,0.05,0.65,mat(0x3a2c1c),-8,0.76,-4);
+  cyl(0.04,0.04,0.3,bm(0xf0e8d0),-8.3,0.91,-3.8);
+  pl(-8.3,1.1,-3.8,0xffcc60,1.5,6,true);
+  // Doorway lib→entrance
+  box(0.12,3.0,2.0,mat(0x2a2418),-4.06,1.5,-1);
+
+  // ── UPPER LANDING ──
+  makeRoom(0,3.2,0, 10,2.8,8, 0x181614,0x222018,0x1c1a16);
+  pl(0,5.8,0,0xffe0c0,2.5,18,true);
+  // Railing
+  for(let x=-4.5;x<=4.5;x+=0.6)cyl(0.04,0.04,0.9,mat(0x3a2c18),x,3.65,-3.5);
+  box(9,0.06,0.06,mat(0x4a3828),0,4.1,-3.5);
+
+  // ── MASTER BEDROOM ──
+  makeRoom(0,3.2,-10, 9,2.8,8, 0x181210,0x201c18,0x181412);
+  pl(0,5.8,-10,0xffc880,2.0,16,true);
+  // Four-poster bed
+  box(2.0,0.5,2.6,mat(0x2a1c10),0,3.45,-10);
+  box(1.95,0.12,2.45,mat(0xd8ccb8),0,3.72,-10);
+  box(2.0,0.5,0.12,mat(0x3a2818),0,3.7,-11.3);
+  [[-1,3.7,-11.3],[1,3.7,-11.3],[-1,3.7,-8.7],[1,3.7,-8.7]].forEach(([x,y,z])=>cyl(0.06,0.06,1.4,mat(0x4a3828),x,y+0.7,z));
+  // Vanity mirror
+  box(0.04,1.2,0.8,mat(0x3a2c18),4.44,4.6,-10);
+  box(0.03,1.0,0.68,bm(0x0a0c14),4.45,4.6,-10);
+  // Wardrobe
+  box(1.6,2.4,0.6,mat(0x2a2018),-3.5,4.6,-13.2);
+
+  // ── SERVANT'S ROOM ──
+  makeRoom(0,3.2,10, 7,2.6,6, 0x161412,0x1e1c18,0x161412);
+  pl(0,5.6,10,0xffe0c0,1.8,12,true);
+  // Simple bed
+  box(1.0,0.4,2.0,mat(0x2a2010),2,3.4,10);
+  box(1.0,0.08,1.8,mat(0xd0c8a8),2,3.62,10);
+  // Rocking chair — creepy
+  box(0.6,0.8,0.6,mat(0x282018),-1.5,3.4,9);
+  // Window
+  box(0.08,0.9,0.6,mat(0x222018),3.44,4.8,10);
+  box(0.06,0.78,0.5,bm(0x060810),3.45,4.8,10);
+  pl(3.0,4.8,10,0x0a0c18,0.3,4,false);
+
+  // ── DETAILS ──
+  // Old telephone in entrance
+  box(0.2,0.12,0.14,mat(0x202018),1.5,0.9,-1);
+  box(0.18,0.06,0.04,mat(0x252520),1.5,1.0,-1);
+  investigatables.push({pos:new THREE.Vector3(1.5,0.9,-1),type:'telephone',label:'[E] EXAMINE TELEPHONE'});
+
+  // Clock on wall entrance
+  cyl(0.3,0.3,0.06,bm(0xd0c8a8),-3.5,2.2,2,0,Math.PI/2);
+  new THREE.Mesh(new THREE.TorusGeometry(0.3,0.03,8,20),mat(0x3a2c18)).position.set(-3.5,2.2,2);
+  investigatables.push({pos:new THREE.Vector3(-3.5,2.2,2),type:'clock',label:'[E] EXAMINE CLOCK'});
+
+  // Doll in corner of servant's room
+  box(0.12,0.3,0.1,bm(0xd0b898),-2.5,3.3,8.2);
+  investigatables.push({pos:new THREE.Vector3(-2.5,3.3,8.2),type:'doll',label:'[E] EXAMINE DOLL'});
+
+  // Old letter on dining table
+  box(0.2,0.01,0.15,bm(0xe0d8b8),8,0.91,1.5,0,0.1);
+  investigatables.push({pos:new THREE.Vector3(8,0.91,1.5),type:'letter',label:'[E] READ LETTER'});
+
+  // Candle in library goes out when cold
+  investigatables.push({pos:new THREE.Vector3(-8.3,0.91,-3.8),type:'candle',label:'[E] OBSERVE CANDLE'});
+}
+
+// ── GHOSTS ───────────────────────────────────────────────────────────
+function spawnGhosts(){
+  const configs=[
+    {name:'ELEANOR',    startPos:new THREE.Vector3(0,1,10),   color:0x88aaff, speed:0.4},
+    {name:'THE CHILD',  startPos:new THREE.Vector3(-10,1,-2), color:0xaaddff, speed:0.5},
+    {name:'THOMAS',     startPos:new THREE.Vector3(0,4.8,-10),color:0x8899cc, speed:0.3},
+    {name:'THE WATCHER',startPos:new THREE.Vector3(10,1,2),   color:0x6688aa, speed:0.45},
+  ];
+  configs.forEach(cfg=>{
+    const g=new THREE.Group();
+    // Translucent humanoid form
+    const bodyMat=new THREE.MeshLambertMaterial({color:cfg.color,transparent:true,opacity:0.0,emissive:new THREE.Color(cfg.color),emissiveIntensity:0.2});
+    const body=new THREE.Mesh(new THREE.BoxGeometry(0.5,1.0,0.3),bodyMat);
+    body.position.set(0,1.0,0); g.add(body);
+    const head=new THREE.Mesh(new THREE.SphereGeometry(0.22,8,8),bodyMat);
+    head.position.set(0,1.72,0); g.add(head);
+    [-0.3,0.3].forEach(x=>{
+      const arm=new THREE.Mesh(new THREE.BoxGeometry(0.12,0.8,0.12),bodyMat);
+      arm.position.set(x,0.9,0); g.add(arm);
+    });
+    [-0.14,0.14].forEach(x=>{
+      const leg=new THREE.Mesh(new THREE.BoxGeometry(0.14,0.7,0.14),bodyMat);
+      leg.position.set(x,0.35,0); g.add(leg);
+    });
+    const ghostLight=new THREE.PointLight(cfg.color,0,6);
+    ghostLight.position.set(0,1.5,0); g.add(ghostLight);
+    g.position.copy(cfg.startPos);
+    scene.add(g);
+    ghosts.push({
+      mesh:g, mat:bodyMat, light:ghostLight,
+      name:cfg.name, color:cfg.color,
+      pos:cfg.startPos.clone(), speed:cfg.speed,
+      opacity:0, targetOpacity:0,
+      state:'wander', wanderTimer:Math.random()*5,
+      wanderTarget:new THREE.Vector3((Math.random()-0.5)*16,0,(Math.random()-0.5)*16),
+      manifestTimer:0, manifestInterval:15+Math.random()*20,
+      legAnim:0,
+    });
+  });
+}
+
+// ── EVIDENCE SPOTS ───────────────────────────────────────────────────
+function placeEvidence(){
+  const spots=[
+    {type:'emf',  pos:new THREE.Vector3(10,1,5),   room:'DINING ROOM'},
+    {type:'cold', pos:new THREE.Vector3(-10,1,-5),  room:'LIBRARY'},
+    {type:'uv',   pos:new THREE.Vector3(0,4,10),    room:'SERVANT\'S ROOM'},
+    {type:'spirit',pos:new THREE.Vector3(0,4.8,-10),room:'MASTER BEDROOM'},
+  ];
+  spots.forEach((s,i)=>{
+    // Visual marker — glowing orb
+    const geo=new THREE.SphereGeometry(0.08,8,8);
+    const col=s.type==='emf'?0x00ff44:s.type==='cold'?0x44aaff:s.type==='uv'?0xaa44ff:0xffaa00;
+    const mat2=new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.6});
+    const mesh=new THREE.Mesh(geo,mat2);
+    mesh.position.copy(s.pos);
+    scene.add(mesh);
+    const l=new THREE.PointLight(col,0.5,3);
+    l.position.copy(s.pos); scene.add(l);
+    evidenceSpots.push({...s,mesh,light:l,collected:false,idx:i});
+  });
+}
+
+// ── TOOLS ────────────────────────────────────────────────────────────
+const TOOL_NAMES=['FLASHLIGHT','EMF READER','THERMOMETER','UV LIGHT','SPIRIT BOX'];
+function setTool(idx){
+  activeTool=idx;
+  document.getElementById('active-tool').textContent='TOOL: '+TOOL_NAMES[idx]+' ['+(idx+1)+']';
+  uvActive=(idx===3);
+  spiritboxActive=(idx===4);
+  document.getElementById('uvoverlay').style.background=uvActive?'rgba(60,0,120,0.12)':'rgba(60,0,120,0)';
+}
+
+function updateTools(dt){
+  const cp=camera.position;
+
+  // EMF — spikes near ghost or evidence
+  let nearestGhostDist=999;
+  ghosts.forEach(g=>{ const d=g.pos.distanceTo(cp); if(d<nearestGhostDist)nearestGhostDist=d; });
+  let nearEv=evidenceSpots.find(e=>e.type==='emf'&&!e.collected&&e.pos.distanceTo(cp)<6);
+
+  if(nearEv&&nearEv.pos.distanceTo(cp)<3) {
+    emfReading=4.5+Math.random()*3;
+    emfSpike=true;
+    document.getElementById('emfoverlay').style.background='rgba(0,60,0,0.08)';
+  } else if(nearestGhostDist<5){
+    emfReading=2+Math.random()*2;
+    emfSpike=emfReading>3;
+    document.getElementById('emfoverlay').style.background=emfSpike?'rgba(0,60,0,0.05)':'rgba(0,0,0,0)';
+  } else {
+    emfReading=Math.max(1.2,emfReading*0.95+(Math.random()-0.5)*0.1);
+    emfSpike=false;
+    document.getElementById('emfoverlay').style.background='rgba(0,0,0,0)';
+  }
+
+  // TEMP — cold spots near evidence or ghosts
+  let coldEv=evidenceSpots.find(e=>e.type==='cold'&&!e.collected&&e.pos.distanceTo(cp)<6);
+  if(coldEv&&coldEv.pos.distanceTo(cp)<3){
+    tempReading=Math.max(1,tempReading-20*dt);
+    coldSpot=tempReading<5;
+  } else if(nearestGhostDist<8){
+    tempReading=Math.max(4,tempReading-8*dt);
+    coldSpot=tempReading<8;
+  } else {
+    tempReading=Math.min(18.4,tempReading+3*dt);
+    coldSpot=false;
+  }
+
+  // Spirit box responses
+  if(spiritboxActive){
+    spiritTimer-=dt;
+    if(spiritTimer<=0){
+      spiritTimer=3+Math.random()*4;
+      let spiritEv=evidenceSpots.find(e=>e.type==='spirit'&&!e.collected&&e.pos.distanceTo(cp)<8);
+      if(spiritEv){
+        const responses=['HELP ME','LEAVE','STAY','I SEE YOU','COLD','HERE','DON\'T GO'];
+        document.getElementById('sb-val').textContent=responses[Math.floor(Math.random()*responses.length)];
+        document.getElementById('sb-val').className='equip-val danger';
+      } else {
+        document.getElementById('sb-val').textContent=Math.random()<0.3?'...STATIC...':'SILENT';
+        document.getElementById('sb-val').className='equip-val normal';
+      }
+    }
+  }
+
+  // Update displays
+  const emfEl=document.getElementById('emf-val');
+  emfEl.textContent=emfReading.toFixed(1)+' mG';
+  emfEl.className='equip-val '+(emfReading>4?'danger':emfReading>2.5?'warn':'normal');
+
+  const tempEl=document.getElementById('temp-val');
+  tempEl.textContent=tempReading.toFixed(1)+'°C';
+  tempEl.className='equip-val '+(tempReading<5?'danger':tempReading<10?'warn':'normal');
+
+  const uvEl=document.getElementById('uv-val');
+  uvEl.textContent=uvActive?'ACTIVE':'INACTIVE';
+  uvEl.className='equip-val '+(uvActive?'warn':'normal');
+
+  if(!spiritboxActive){
+    document.getElementById('sb-val').textContent='SILENT';
+    document.getElementById('sb-val').className='equip-val normal';
+  }
+}
+
+// ── INVESTIGATE ───────────────────────────────────────────────────────
+const ITEM_MESSAGES={
+  telephone:'The telephone is off the hook.\nThere is no dial tone.\nSomething breathes on the line.',
+  clock:'The clock stopped at 3:12 AM.\nThe hands are bent backward.',
+  doll:'A porcelain doll.\nIts eyes track you as you move.',
+  letter:'A letter in old handwriting.\n"She never left. She never will.\nWe have stopped looking."',
+  candle:'The candle flame bends toward you\neven though the air is still.',
+};
+
+function tryInvestigate(){
+  const cp=camera.position;
+  const look=new THREE.Vector3(0,0,-1).applyEuler(new THREE.Euler(pitch,yaw,0,'YXZ'));
+
+  // Check exit
+  for(const ia of investigatables){
+    if(ia.pos.distanceTo(cp)>2.5)continue;
+    const dot=ia.pos.clone().sub(cp).normalize().dot(look);
+    if(dot<0.45)continue;
+    if(ia.type==='exit'){
+      if(evidenceFound>=EVIDENCE_NEEDED){ winGame(); return; }
+      else{ showMsg(`Cannot leave yet.\nCollect ${EVIDENCE_NEEDED-evidenceFound} more pieces of evidence.`,3); return; }
+    }
+    if(ITEM_MESSAGES[ia.type]){
+      showMsg(ITEM_MESSAGES[ia.type],4);
+      hauntLevel=Math.min(100,hauntLevel+3);
+      triggerGhostEvent();
+      return;
+    }
+  }
+
+  // Evidence spots
+  for(const ev of evidenceSpots){
+    if(ev.collected)continue;
+    if(ev.pos.distanceTo(cp)>3)continue;
+    const dot=ev.pos.clone().sub(cp).normalize().dot(look);
+    if(dot<0.4)continue;
+
+    // Check correct tool
+    const toolNeeded={emf:1,cold:2,uv:3,spirit:4};
+    if(activeTool===toolNeeded[ev.type]||
+      (ev.type==='emf'&&emfSpike)||
+      (ev.type==='cold'&&coldSpot&&activeTool===2)||
+      (ev.type==='uv'&&uvActive)||
+      (ev.type==='spirit'&&spiritboxActive)){
+      collectEvidence(ev);
+    } else {
+      const hint={emf:'Use the EMF reader here.',cold:'Use the thermometer here.',uv:'Switch to UV light here.',spirit:'Use the spirit box here.'};
+      showMsg(hint[ev.type]||'Something is here.',2);
+    }
+    return;
+  }
+}
+
+function collectEvidence(ev){
+  ev.collected=true;
+  evidenceFound++;
+  scene.remove(ev.mesh); scene.remove(ev.light);
+
+  const idx=evidenceTypes.indexOf(ev.type);
+  if(idx>=0){
+    evidenceCollected[idx]=true;
+    document.getElementById('ev'+idx).classList.add('found');
+    document.getElementById('ev'+idx).textContent='◼ '+document.getElementById('ev'+idx).textContent.slice(2);
+  }
+
+  hauntLevel=Math.min(100,hauntLevel+15);
+  const names={emf:'EMF SPIKE LOGGED',cold:'COLD SPOT DOCUMENTED',uv:'UV EVIDENCE PHOTOGRAPHED',spirit:'SPIRIT RESPONSE RECORDED'};
+  showMsg(names[ev.type]+'\n'+evidenceFound+'/'+EVIDENCE_NEEDED+' collected.',3);
+
+  if(evidenceFound>=EVIDENCE_NEEDED){
+    showMsg('All evidence collected.\nGet to the exit.',4);
+  }
+  triggerGhostEvent();
+}
+
+function triggerGhostEvent(){
+  // Pick a random ghost and make it manifest
+  const g=ghosts[Math.floor(Math.random()*ghosts.length)];
+  g.targetOpacity=0.35+Math.random()*0.3;
+  g.manifestTimer=3+Math.random()*3;
+  activeGhostName=g.name;
+  document.getElementById('ghost-name').style.color='rgba(180,220,255,0.7)';
+  setTimeout(()=>document.getElementById('ghost-name').style.color='rgba(180,220,255,0)',3000);
+  document.getElementById('ghost-name').textContent=g.name;
+}
+
+// ── GHOST AI ──────────────────────────────────────────────────────────
+function updateGhosts(dt){
+  const cp=camera.position;
+  ghosts.forEach((g,i)=>{
+    // Passive manifestation
+    g.manifestTimer-=dt;
+    if(g.manifestTimer<=0){
+      g.manifestTimer=g.manifestInterval*(1-hauntLevel/150);
+      g.targetOpacity=hauntLevel>30?0.15+Math.random()*0.25:0;
+      if(hauntLevel>60) g.targetOpacity+=0.2;
+    }
+
+    // Hunt mode
+    if(huntMode){
+      g.targetOpacity=0.6;
+      const toP=new THREE.Vector3(cp.x-g.pos.x,0,cp.z-g.pos.z);
+      const dist=toP.length();
+      toP.normalize();
+      g.pos.addScaledVector(toP,g.speed*1.2*dt);
+      g.mesh.position.set(g.pos.x,g.pos.y,g.pos.z);
+      g.mesh.lookAt(cp.x,g.pos.y,cp.z);
+      if(dist<1.2){
+        playerHp-=25*dt;
+        dmgTimer=0.2;
+        if(playerHp<=0)die('The ghost of '+g.name+'\nclaimed you at '+missionTimeStr());
+      }
+    } else {
+      // Wander
+      g.wanderTimer-=dt;
+      if(g.wanderTimer<=0){
+        g.wanderTimer=4+Math.random()*6;
+        g.wanderTarget.set((Math.random()-0.5)*18,0,(Math.random()-0.5)*20);
+      }
+      const toWander=new THREE.Vector3(g.wanderTarget.x-g.pos.x,0,g.wanderTarget.z-g.pos.z);
+      if(toWander.length()>0.5){
+        toWander.normalize();
+        g.pos.addScaledVector(toWander,g.speed*dt);
+        g.mesh.position.set(g.pos.x,g.pos.y,g.pos.z);
+        g.mesh.lookAt(g.pos.x+toWander.x,g.pos.y,g.pos.z+toWander.z);
+      }
+      // Drift toward player at high haunt
+      if(hauntLevel>50&&Math.random()<0.005){
+        g.wanderTarget.set(cp.x+(Math.random()-0.5)*4,0,cp.z+(Math.random()-0.5)*4);
+      }
+    }
+
+    // Opacity
+    g.opacity+=(g.targetOpacity-g.opacity)*0.02;
+    g.mat.opacity=g.opacity;
+    g.mat.transparent=true;
+    g.light.intensity=g.opacity*1.5;
+
+    // Leg anim
+    g.legAnim+=dt*2;
+    g.mesh.children.forEach((c,ci)=>{
+      if(c.geometry instanceof THREE.BoxGeometry&&c.position.y<0.6&&c.position.y>0.05)
+        c.position.y=0.35+Math.sin(g.legAnim+ci)*0.06;
+    });
+  });
+}
+
+// ── GAME FLOW ──────────────────────────────────────────────────────────
+function startGame(){
+  document.getElementById('overlay').style.display='none';
+  gameActive=true;
+  setTimeout(()=>document.getElementById('c').requestPointerLock(),150);
+  document.getElementById('lockhint').style.display='block';
+  showMsg('Ashford Manor.\nCollect 4 pieces of evidence.\nFind the exit.',4);
+  animate();
+}
+
+function showMsg(text,dur=3){
+  const el=document.getElementById('msg');
+  el.textContent=text; el.style.opacity='1'; msgTimer=dur;
+}
+
+function checkNearby(){
+  const cp=camera.position;
+  const look=new THREE.Vector3(0,0,-1).applyEuler(new THREE.Euler(pitch,yaw,0,'YXZ'));
+  let label='';
+
+  for(const ia of investigatables){
+    const d=ia.pos.distanceTo(cp);
+    if(d>2.5)continue;
+    const dot=d<3?ia.pos.clone().sub(cp).normalize().dot(look):0;
+    if(dot>0.42){ label=ia.label; break; }
+  }
+  if(!label){
+    for(const ev of evidenceSpots){
+      if(ev.collected)continue;
+      const d=ev.pos.distanceTo(cp);
+      if(d>3)continue;
+      const dot=ev.pos.clone().sub(cp).normalize().dot(look);
+      if(dot>0.4){
+        const hints={emf:'EMF SPIKE NEARBY',cold:'COLD SPOT NEARBY',uv:'UV EVIDENCE NEARBY',spirit:'SPIRIT ACTIVITY NEARBY'};
+        label='[E] INVESTIGATE — '+hints[ev.type];
+        break;
+      }
+    }
+  }
+
+  document.getElementById('prompt').textContent=label;
+  document.getElementById('prompt').style.opacity=label?'1':'0';
+}
+
+function die(reason){
+  if(!gameActive)return;
+  gameActive=false; document.exitPointerLock();
+  setTimeout(()=>{
+    document.getElementById('deadscreen').style.display='flex';
+    document.getElementById('dead-msg').innerHTML=
+      reason+'<br><br>Evidence: '+evidenceFound+'/'+EVIDENCE_NEEDED+'<br>Haunt level: '+Math.floor(hauntLevel)+'%<br>Time: '+missionTimeStr();
+  },700);
+}
+
+function winGame(){
+  if(!gameActive)return;
+  gameActive=false; document.exitPointerLock();
+  setTimeout(()=>{
+    document.getElementById('winscreen').style.display='flex';
+    document.getElementById('win-msg').innerHTML=
+      'All evidence recovered from Ashford Manor.<br>Time: '+missionTimeStr()+'<br>Haunt level at exit: '+Math.floor(hauntLevel)+'%<br><br>'+
+      (hauntLevel>80?'They followed you to the door.<br>You don\'t know if they stopped there.':'The manor fell silent as you left.<br>It won\'t stay silent for long.');
+  },600);
+}
+
+function missionTimeStr(){
+  const m=Math.floor(missionTime/60);
+  const s=Math.floor(missionTime%60);
+  return m+'m '+s+'s';
+}
+
+// ── ANIMATE ───────────────────────────────────────────────────────────
+function animate(){
+  requestAnimationFrame(animate);
+  const dt=Math.min(clock.getDelta(),0.05);
+  if(!gameActive){ renderer.render(scene,camera); return; }
+
+  missionTime+=dt;
+  gameTime+=dt;
+
+  movePlayer(dt);
+  updateGhosts(dt);
+  updateTools(dt);
+  checkNearby();
+  updateLights(dt);
+
+  // Haunt passively rises
+  hauntLevel=Math.min(100,hauntLevel+dt*0.8);
+  document.getElementById('haunt-fill').style.width=hauntLevel+'%';
+  document.getElementById('haunt-pct').textContent=Math.floor(hauntLevel)+'%';
+
+  // Hunt mode triggers at 100%
+  if(hauntLevel>=100&&!huntMode){
+    huntMode=true;
+    huntTimer=30;
+    showMsg('FULL HAUNT\nRUN.',4);
+    // All ghosts manifest
+    ghosts.forEach(g=>{g.targetOpacity=0.7;g.wanderTarget.copy(camera.position);});
+    scene.fog.density=0.08;
+    document.getElementById('haunt-pct').style.color='rgba(255,50,50,0.9)';
+  }
+  if(huntMode){
+    huntTimer-=dt;
+    // Slow haunt back down after hunt
+    if(huntTimer<=0){huntMode=false;hauntLevel=60;}
+  }
+
+  // Atmosphere darkens with haunt
+  if(!huntMode){
+    const fogDensity=0.045+hauntLevel/100*0.04;
+    scene.fog.density=fogDensity;
+    renderer.toneMappingExposure=Math.max(1.2,2.2-hauntLevel/100*0.8);
+  }
+
+  // Ghost proximity effects
+  let closestGhost=999;
+  ghosts.forEach(g=>{if(g.opacity>0.05)closestGhost=Math.min(closestGhost,g.pos.distanceTo(camera.position));});
+  if(closestGhost<6){
+    const i=Math.max(0,(6-closestGhost)/6);
+    document.getElementById('vig').style.background=`radial-gradient(ellipse at center,transparent ${40-i*20}%,rgba(0,0,${Math.floor(i*30)},${0.75+i*0.2}) 100%)`;
+  } else {
+    document.getElementById('vig').style.background='radial-gradient(ellipse at center,transparent 45%,rgba(0,0,0,0.75) 100%)';
+  }
+
+  // Flashlight follows camera
+  flashlight.position.copy(camera.position);
+  const fd=new THREE.Vector3(0,0,-1).applyEuler(new THREE.Euler(pitch,yaw,0,'YXZ'));
+  flashlight.target.position.copy(camera.position).addScaledVector(fd,10);
+  flashlight.target.updateMatrixWorld();
+
+  if(dmgTimer>0){dmgTimer-=dt;document.getElementById('dmg').style.background=`rgba(180,0,0,${Math.max(0,dmgTimer*0.8)})`;}
+  if(msgTimer>0){msgTimer-=dt;if(msgTimer<=0)document.getElementById('msg').style.opacity='0';}
+
+  renderer.render(scene,camera);
+}
+
+function movePlayer(dt){
+  camera.rotation.order='YXZ';
+  camera.rotation.y=yaw;
+  camera.rotation.x=pitch;
+
+  const sprint=keys['ShiftLeft']&&sprintStam>0;
+  const speed=sprint?6:3.5;
+  if(sprint)sprintStam=Math.max(0,sprintStam-dt*30);
+  else sprintStam=Math.min(100,sprintStam+dt*15);
+
+  const dir=new THREE.Vector3();
+  if(keys['KeyW']||keys['ArrowUp'])   dir.z-=1;
+  if(keys['KeyS']||keys['ArrowDown']) dir.z+=1;
+  if(keys['KeyA']||keys['ArrowLeft']) dir.x-=1;
+  if(keys['KeyD']||keys['ArrowRight'])dir.x+=1;
+  dir.normalize().applyEuler(new THREE.Euler(0,yaw,0));
+  camera.position.x+=dir.x*speed*dt;
+  camera.position.z+=dir.z*speed*dt;
+  camera.position.x=Math.max(-15,Math.min(15,camera.position.x));
+  camera.position.z=Math.max(-15,Math.min(15,camera.position.z));
+
+  if(keys['Space']&&onGround){velocityY=5;onGround=false;}
+  velocityY-=16*dt;
+  camera.position.y+=velocityY*dt;
+
+  // Calculate ground height under player
+  let groundY = 1.65; // default: ground floor
+
+  const px = camera.position.x, pz = camera.position.z;
+
+  // Staircase zone: x 2.0–5.0, z -4.5 to 0.5
+  // Walking from z=0 toward z=-4 climbs from y=0 to y=3.2
+  const onStairs = px > 2.0 && px < 5.0 && pz > -4.8 && pz < 0.5;
+  if (onStairs) {
+    const t = Math.max(0, Math.min(1, (-pz) / 4.2));
+    groundY = 1.65 + t * 3.2;
+  } else if (camera.position.y > 3.2) {
+    // Already upstairs — stay on upper floor
+    groundY = 4.85;
+  }
+
+  // Clamp: don't snap UP more than a small step per frame (prevents teleport)
+  const maxStep = 0.25;
+  if (groundY > camera.position.y + maxStep && velocityY <= 0) {
+    // Stair is ahead/above — push player up gently like walking up a ramp
+    camera.position.y = Math.min(camera.position.y + maxStep, groundY);
+    velocityY = 0;
+    onGround = true;
+  } else if (camera.position.y <= groundY) {
+    camera.position.y = groundY;
+    velocityY = 0;
+    onGround = true;
+  } else {
+    onGround = false;
+  }
+}
+
+function updateLights(dt){
+  flickerLights.forEach(fl=>{
+    fl.t+=dt;
+    if(fl.dead){
+      if(Math.random()<0.005){fl.light.intensity=fl.base*0.3;setTimeout(()=>{if(fl.light)fl.light.intensity=0;},80);}
+      else fl.light.intensity*=0.99;
+    } else {
+      fl.light.intensity=fl.base*(0.82+Math.sin(fl.t*11)*0.1+Math.random()*0.08);
+      if(Math.random()<0.002){fl.light.intensity=0;setTimeout(()=>{if(fl.light)fl.light.intensity=fl.base;},50+Math.random()*100);}
+      // At high haunt lights go out more
+      if(hauntLevel>70&&Math.random()<0.001){fl.dead=true;}
+    }
+  });
+  // Evidence orbs pulse
+  evidenceSpots.forEach((ev,i)=>{
+    if(!ev.collected) ev.mesh.position.y=ev.pos.y+Math.sin(gameTime*2+i)*0.05;
+  });
+}
+
+init();
+</script>
+</body>
+</html>
